@@ -2,9 +2,11 @@ package mwclient
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gopkg.in/gographics/imagick.v3/imagick"
@@ -31,11 +33,11 @@ func isImageMagickAvailable() bool {
 			// ImageMagick not available
 		}
 	}()
-	
+
 	// Try to initialize ImageMagick
 	imagick.Initialize()
 	defer imagick.Terminate()
-	
+
 	// If we get here, ImageMagick is available
 	return true
 }
@@ -95,11 +97,11 @@ func TestResizeImage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
 			err := client.ResizeImage(tt.reader, &buf, tt.width, tt.height, tt.format)
-			
+
 			if tt.expectErr && err == nil {
 				t.Errorf("expected error but got nil")
 			}
-			
+
 			if !tt.expectErr && err != nil {
 				t.Errorf("unexpected error: %v", err)
 			}
@@ -146,11 +148,11 @@ func TestConvertFormat(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
 			err := client.ConvertFormat(tt.reader, &buf, tt.format)
-			
+
 			if tt.expectErr && err == nil {
 				t.Errorf("expected error but got nil")
 			}
-			
+
 			if !tt.expectErr && err != nil {
 				t.Errorf("unexpected error: %v", err)
 			}
@@ -171,26 +173,50 @@ func TestWithRealImage(t *testing.T) {
 	if _, err := os.Stat(testImagePath); os.IsNotExist(err) {
 		t.Skip("Test image not found, skipping test")
 	}
-	
+
 	// Create a temporary directory for test files
-	tempDir, err := os.MkdirTemp("", "mwclient-test")
+	tempDir, err := os.MkdirTemp("/tmp", "mwclient-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
-	
+
 	// Output path
 	outputPath := filepath.Join(tempDir, "output.png")
-	
+
 	client := New()
 	defer client.Close()
-	
+
 	// Test ResizeImageFile
 	err = client.ResizeImageFile(testImagePath, outputPath, 200, 200, "png")
 	if err != nil {
 		t.Errorf("ResizeImageFile failed: %v", err)
 	}
-	
+
+	// Check if the output file exists
+	if _, err := os.Stat(outputPath); os.IsNotExist(err) {
+		t.Errorf("Output file was not created")
+	}
+
+	// Test ResizeByHeight
+	outputPath = filepath.Join(tempDir, "output_height.png")
+	err = client.ResizeByHeight(testImagePath, outputPath, 480)
+	if err != nil {
+		t.Errorf("ResizeByHeight failed: %v", err)
+	}
+
+	// Check if the output file exists
+	if _, err := os.Stat(outputPath); os.IsNotExist(err) {
+		t.Errorf("Output file was not created")
+	}
+
+	// Test ResizeByWidth
+	outputPath = filepath.Join(tempDir, "output_width.png")
+	err = client.ResizeByWidth(testImagePath, outputPath, 480)
+	if err != nil {
+		t.Errorf("ResizeByWidth failed: %v", err)
+	}
+
 	// Check if the output file exists
 	if _, err := os.Stat(outputPath); os.IsNotExist(err) {
 		t.Errorf("Output file was not created")
@@ -206,18 +232,18 @@ func TestResizeImageFile(t *testing.T) {
 
 	client := New()
 	defer client.Close()
-	
+
 	// Test with empty paths
 	err := client.ResizeImageFile("", "output.png", 100, 100, "png")
 	if err == nil {
 		t.Error("Expected error with empty input path, got nil")
 	}
-	
+
 	err = client.ResizeImageFile("input.png", "", 100, 100, "png")
 	if err == nil {
 		t.Error("Expected error with empty output path, got nil")
 	}
-	
+
 	// Test with non-existent input file
 	err = client.ResizeImageFile("nonexistent.png", "output.png", 100, 100, "png")
 	if err == nil {
@@ -234,13 +260,13 @@ func TestOpenImage(t *testing.T) {
 
 	client := New()
 	defer client.Close()
-	
+
 	// Test with empty path
 	_, err := client.OpenImage("")
 	if err == nil {
 		t.Error("Expected error with empty path, got nil")
 	}
-	
+
 	// Test with non-existent file
 	_, err = client.OpenImage("nonexistent.png")
 	if err == nil {
@@ -257,13 +283,13 @@ func TestGetImageMetadata(t *testing.T) {
 
 	client := New()
 	defer client.Close()
-	
+
 	// Test with empty path
 	_, err := client.GetImageMetadata("")
 	if err == nil {
 		t.Error("Expected error with empty path, got nil")
 	}
-	
+
 	// Test with non-existent file
 	_, err = client.GetImageMetadata("nonexistent.png")
 	if err == nil {
@@ -280,29 +306,29 @@ func TestResizeByHeight(t *testing.T) {
 
 	client := New()
 	defer client.Close()
-	
+
 	// Test with empty paths
 	err := client.ResizeByHeight("", "output.png", 100)
 	if err == nil {
 		t.Error("Expected error with empty input path, got nil")
 	}
-	
+
 	err = client.ResizeByHeight("input.png", "", 100)
 	if err == nil {
 		t.Error("Expected error with empty output path, got nil")
 	}
-	
+
 	// Test with invalid height
 	err = client.ResizeByHeight("input.png", "output.png", 0)
 	if err == nil {
 		t.Error("Expected error with zero height, got nil")
 	}
-	
+
 	err = client.ResizeByHeight("input.png", "output.png", -1)
 	if err == nil {
 		t.Error("Expected error with negative height, got nil")
 	}
-	
+
 	// Test with non-existent input file
 	err = client.ResizeByHeight("nonexistent.png", "output.png", 100)
 	if err == nil {
@@ -319,32 +345,117 @@ func TestResizeByWidth(t *testing.T) {
 
 	client := New()
 	defer client.Close()
-	
+
 	// Test with empty paths
 	err := client.ResizeByWidth("", "output.png", 100)
 	if err == nil {
 		t.Error("Expected error with empty input path, got nil")
 	}
-	
+
 	err = client.ResizeByWidth("input.png", "", 100)
 	if err == nil {
 		t.Error("Expected error with empty output path, got nil")
 	}
-	
+
 	// Test with invalid width
 	err = client.ResizeByWidth("input.png", "output.png", 0)
 	if err == nil {
 		t.Error("Expected error with zero width, got nil")
 	}
-	
+
 	err = client.ResizeByWidth("input.png", "output.png", -1)
 	if err == nil {
 		t.Error("Expected error with negative width, got nil")
 	}
-	
+
 	// Test with non-existent input file
 	err = client.ResizeByWidth("nonexistent.png", "output.png", 100)
 	if err == nil {
 		t.Error("Expected error with non-existent input file, got nil")
+	}
+}
+
+// TestConvertPdfToImages tests the ConvertPdfToImages method
+func TestConvertPdfToImages(t *testing.T) {
+	// Skip test if ImageMagick is not properly configured
+	if !isImageMagickAvailable() {
+		t.Skip("ImageMagick not available, skipping test")
+	}
+
+	client := New()
+	defer client.Close()
+
+	// Test with empty paths
+	err := client.ConvertPdfToImages("", "output.png", 2, 300, true)
+	if err == nil {
+		t.Error("Expected error with empty input path, got nil")
+	}
+
+	err = client.ConvertPdfToImages("input.pdf", "", 2, 300, true)
+	if err == nil {
+		t.Error("Expected error with empty output path, got nil")
+	}
+
+	// Test with invalid height
+	err = client.ConvertPdfToImages("input.pdf", "output.png", 2, 0, true)
+	if err == nil {
+		t.Error("Expected error with zero height, got nil")
+	}
+
+	err = client.ConvertPdfToImages("input.pdf", "output.png", 2, -1, true)
+	if err == nil {
+		t.Error("Expected error with negative height, got nil")
+	}
+
+	// Test with non-existent input file
+	err = client.ConvertPdfToImages("nonexistent.pdf", "output.png", 2, 300, true)
+	if err == nil {
+		t.Error("Expected error with non-existent input file, got nil")
+	}
+
+	// Test with real PDF file (skipped by default)
+	testPdfPath := "/Users/bd/Workspace/Torpago/simple-media-proc/test/data/aws.pdf"
+	if _, err := os.Stat(testPdfPath); os.IsNotExist(err) {
+		t.Skip("Test PDF file not found, skipping real conversion test")
+	} else {
+		// Create a temporary directory for test output
+		tempDir, err := os.MkdirTemp("/tmp", "pdf-test")
+		if err != nil {
+			t.Fatalf("Failed to create temp dir: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		// Test montage creation
+		outputMontage := filepath.Join(tempDir, "output_montage.png")
+		err = client.ConvertPdfToImages(testPdfPath, outputMontage, 2, 300, true)
+		if err != nil {
+			t.Errorf("Failed to convert PDF to montage: %v", err)
+		}
+
+		// Check if the output file exists
+		if _, err := os.Stat(outputMontage); os.IsNotExist(err) {
+			t.Errorf("Output montage file was not created")
+		}
+
+		// Test individual page extraction
+		outputSingleBase := filepath.Join(tempDir, "output_single.png")
+		err = client.ConvertPdfToImages(testPdfPath, outputSingleBase, 2, 300, false)
+		if err != nil {
+			t.Errorf("Failed to convert PDF to individual images: %v", err)
+		}
+
+		// Check if individual page files exist
+		ext := filepath.Ext(outputSingleBase)
+		base := strings.TrimSuffix(outputSingleBase, ext)
+		firstPagePath := fmt.Sprintf("%s_page1%s", base, ext)
+		secondPagePath := fmt.Sprintf("%s_page2%s", base, ext)
+
+		if _, err := os.Stat(firstPagePath); os.IsNotExist(err) {
+			t.Errorf("First page output file was not created: %s", firstPagePath)
+		}
+
+		if _, err := os.Stat(secondPagePath); os.IsNotExist(err) {
+			t.Errorf("Second page output file was not created: %s", secondPagePath)
+		}
 	}
 }
