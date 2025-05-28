@@ -12,6 +12,7 @@ This package provides a Go wrapper for the ImageMagick library using the `gopkg.
 - Automatic image orientation based on EXIF data
 - High-quality image compression (95% quality)
 - Aspect ratio-preserving resize operations
+- PDF to image conversion with montage support
 
 ## Usage
 
@@ -47,15 +48,28 @@ func main() {
 	}
 	
 	// Get image metadata
-	err = client.OpenImage("input.jpg")
+	meta, err := client.OpenImage("input.jpg")
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
 	}
 	
-	meta := client.GetImageMeta()
 	fmt.Printf("Image format: %s, dimensions: %dx%d\n", 
 		meta.FormatName, meta.ImageWidth, meta.ImageHeight)
+	
+	// Create a montage of the first 2 pages of a PDF
+	err = client.ConvertPdfToImages("input.pdf", "output.png", 2, 300, true)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Or extract each page as a separate file
+	err = client.ConvertPdfToImages("input.pdf", "output.png", 2, 300, false)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
 }
 ```
 
