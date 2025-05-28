@@ -6,6 +6,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 
 	"gopkg.in/gographics/imagick.v3/imagick"
@@ -170,6 +172,7 @@ func (c *Client) ResizeImageFile(inputPath, outputPath string, width, height uin
 	defer mw.Destroy()
 
 	// Read the image
+	slog.Info("ReadImage", "In", inputPath)
 	if err := mw.ReadImage(inputPath); err != nil {
 		return fmt.Errorf("%w: failed to read image: %v", ErrProcessing, err)
 	}
@@ -192,12 +195,14 @@ func (c *Client) ResizeImageFile(inputPath, outputPath string, width, height uin
 
 	// Set the output format if specified
 	if format != "" {
+		slog.Info("SetImageFormat", "Format", format)
 		if err := mw.SetImageFormat(format); err != nil {
 			return fmt.Errorf("%w: failed to set image format: %v", ErrProcessing, err)
 		}
 	}
 
 	// Write the image directly to file
+	slog.Info("WriteImage", "Out", outputPath)
 	if err := mw.WriteImage(outputPath); err != nil {
 		return fmt.Errorf("%w: failed to write image: %v", ErrProcessing, err)
 	}
@@ -281,11 +286,13 @@ func (c *Client) ResizeByHeight(inputPath, outputPath string, targetHeight int) 
 	defer mw.Destroy()
 
 	// Read the image
+	slog.Info("ReadImage", "In", inputPath)
 	if err := mw.ReadImage(inputPath); err != nil {
 		return fmt.Errorf("%w: failed to read image: %v", ErrProcessing, err)
 	}
 
 	// Auto-orient the image based on EXIF data
+	slog.Info("AutoOrientImage")
 	if err := mw.AutoOrientImage(); err != nil {
 		slog.Error("Auto-orientation failed", "error", err)
 		// Continue despite error
@@ -296,7 +303,7 @@ func (c *Client) ResizeByHeight(inputPath, outputPath string, targetHeight int) 
 	imageHeight := int32(mw.GetImageHeight())
 
 	slog.Info("ResizeByHeight with Sinc", "Out", outputPath, "Height", targetHeight)
-	
+
 	// Calculate the target width, keeping aspect ratio
 	targetWidth := uint(imageWidth * int32(targetHeight) / imageHeight)
 
@@ -311,6 +318,7 @@ func (c *Client) ResizeByHeight(inputPath, outputPath string, targetHeight int) 
 	}
 
 	// Write the image directly to file
+	slog.Info("WriteImage", "Out", outputPath)
 	if err := mw.WriteImage(outputPath); err != nil {
 		return fmt.Errorf("%w: failed to write image: %v", ErrProcessing, err)
 	}
@@ -340,11 +348,13 @@ func (c *Client) ResizeByWidth(inputPath, outputPath string, targetWidth int) er
 	defer mw.Destroy()
 
 	// Read the image
+	slog.Info("ReadImage", "In", inputPath)
 	if err := mw.ReadImage(inputPath); err != nil {
 		return fmt.Errorf("%w: failed to read image: %v", ErrProcessing, err)
 	}
 
 	// Auto-orient the image based on EXIF data
+	slog.Info("AutoOrientImage")
 	if err := mw.AutoOrientImage(); err != nil {
 		slog.Error("Auto-orientation failed", "error", err)
 		// Continue despite error
@@ -355,7 +365,7 @@ func (c *Client) ResizeByWidth(inputPath, outputPath string, targetWidth int) er
 	imageHeight := int32(mw.GetImageHeight())
 
 	slog.Info("ResizeByWidth with Sinc", "Out", outputPath, "Width", targetWidth)
-	
+
 	// Calculate the target height, keeping aspect ratio
 	targetHeight := uint(imageHeight * int32(targetWidth) / imageWidth)
 
@@ -370,8 +380,134 @@ func (c *Client) ResizeByWidth(inputPath, outputPath string, targetWidth int) er
 	}
 
 	// Write the image directly to file
+	slog.Info("WriteImage", "Out", outputPath)
 	if err := mw.WriteImage(outputPath); err != nil {
 		return fmt.Errorf("%w: failed to write image: %v", ErrProcessing, err)
+	}
+
+	return nil
+}
+
+// ConvertPdfToImages converts a PDF file to one or more images
+// If createMontage is true, it will combine the images into a single montage image
+// maxPages limits the number of pages to process (0 means all pages)
+// targetHeight specifies the height for the output images
+func (c *Client) ConvertPdfToImages(inputPath, outputPath string, maxPages int, targetHeight int, createMontage bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if inputPath == "" || outputPath == "" {
+		return fmt.Errorf("%w: input or output path is empty", ErrInvalidInput)
+	}
+
+	if targetHeight <= 0 {
+		return fmt.Errorf("%w: target height must be positive", ErrInvalidInput)
+	}
+
+	// Check if input file exists
+	if _, err := os.Stat(inputPath); os.IsNotExist(err) {
+		return fmt.Errorf("%w: input file does not exist: %v", ErrInvalidInput, err)
+	}
+
+	// Read the PDF
+	pdfWand := imagick.NewMagickWand()
+	defer pdfWand.Destroy()
+
+	if err := pdfWand.ReadImage(inputPath); err != nil {
+		return fmt.Errorf("%w: failed to read PDF: %v", ErrProcessing, err)
+	}
+
+	// Get the number of pages
+	numPages := pdfWand.GetNumberImages()
+	slog.Info("ConvertPdf", "Out", outputPath, "Page Height", targetHeight, "Total Pages", numPages)
+
+	// Limit the number of pages if maxPages is specified
+	if maxPages > 0 && int(numPages) > maxPages {
+		numPages = uint(maxPages)
+	}
+
+	// Create a new wand for the output images
+	mw := imagick.NewMagickWand()
+	defer mw.Destroy()
+
+	// Add each page to the output wand
+	for i := 0; i < int(numPages); i++ {
+		slog.Info("Processing page", "Index", i)
+		pdfWand.SetIteratorIndex(i)
+		pageImg := pdfWand.GetImage()
+
+		// Add the page image to the output wand
+		err := mw.AddImage(pageImg)
+		if err != nil {
+			slog.Error("Failed to add page image", "error", err, "page", i)
+			continue
+		}
+
+		// If not creating a montage, save each page as a separate file
+		if !createMontage {
+			// Get the current image from the wand
+			mw.SetIteratorIndex(i)
+			currentImg := mw.GetImage()
+
+			// Resize to the target height
+			imageWidth := int32(currentImg.GetImageWidth())
+			imageHeight := int32(currentImg.GetImageHeight())
+			targetWidth := uint(imageWidth * int32(targetHeight) / imageHeight)
+
+			if err := currentImg.ResizeImage(targetWidth, uint(targetHeight), imagick.FILTER_SINC); err != nil {
+				slog.Error("Failed to resize page image", "error", err, "page", i)
+				continue
+			}
+
+			// Set compression quality
+			if err := currentImg.SetImageCompressionQuality(95); err != nil {
+				slog.Error("Failed to set compression quality", "error", err, "page", i)
+			}
+
+			// Generate the output filename for this page
+			pageOutputPath := outputPath
+			if numPages > 1 {
+				ext := filepath.Ext(outputPath)
+				base := strings.TrimSuffix(outputPath, ext)
+				pageOutputPath = fmt.Sprintf("%s_page%d%s", base, i+1, ext)
+				slog.Info("Processing page", "Index", i, "Path", pageOutputPath)
+			}
+
+			// Write the page image to file
+			if err := currentImg.WriteImage(pageOutputPath); err != nil {
+				slog.Error("Failed to write page image", "error", err, "page", i, "path", pageOutputPath)
+			}
+
+			// Clean up
+			currentImg.Destroy()
+		}
+	}
+
+	// If creating a montage, combine all pages into one image
+	if createMontage {
+		// Create a drawing wand for the montage
+		dw := imagick.NewDrawingWand()
+		defer dw.Destroy()
+
+		// Set up montage parameters
+		tileGeo := "1x"                              // Stack vertically
+		thumbGeo := fmt.Sprintf("x%d", targetHeight) // Target height
+		mode := imagick.MONTAGE_MODE_CONCATENATE
+		frame := "+0+0" // No frame
+
+		// Create the montage
+		montageWand := mw.MontageImage(dw, tileGeo, thumbGeo, mode, frame)
+		defer montageWand.Destroy()
+
+		// Set compression quality
+		if err := montageWand.SetImageCompressionQuality(95); err != nil {
+			slog.Error("Failed to set montage compression quality", "error", err)
+		}
+
+		// Write the montage to file
+		if err := montageWand.WriteImage(outputPath); err != nil {
+			return fmt.Errorf("%w: failed to write montage image: %v", ErrProcessing, err)
+		}
 	}
 
 	return nil
