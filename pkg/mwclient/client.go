@@ -413,6 +413,11 @@ func (c *Client) ConvertPdfToImages(inputPath, outputPath string, maxPages int, 
 	pdfWand := imagick.NewMagickWand()
 	defer pdfWand.Destroy()
 
+	// bump PDF raster density to 300 DPI for sharper text/lines:
+	if err := pdfWand.SetResolution(300, 300); err != nil {
+		return fmt.Errorf("%w: could not set resolution: %v", ErrProcessing, err)
+	}
+
 	if err := pdfWand.ReadImage(inputPath); err != nil {
 		return fmt.Errorf("%w: failed to read PDF: %v", ErrProcessing, err)
 	}
@@ -449,6 +454,23 @@ func (c *Client) ConvertPdfToImages(inputPath, outputPath string, maxPages int, 
 			mw.SetIteratorIndex(i)
 			currentImg := mw.GetImage()
 
+			// flatten transparency over white
+			white := imagick.NewPixelWand()
+			defer white.Destroy()
+			white.SetColor("white")
+			currentImg.SetImageBackgroundColor(white)
+			flat := currentImg.MergeImageLayers(imagick.IMAGE_LAYER_FLATTEN) // new flat wand
+			currentImg.Destroy()                                             // drop the raw one early
+			currentImg = flat                                                // now work with flat version
+			defer currentImg.Destroy()                                       // clean up
+
+			// Auto-orient the image based on EXIF data
+			err := currentImg.AutoOrientImage()
+			if err != nil {
+				slog.Error("Auto-orientation failed", "error", err)
+				// Continue despite error
+			}
+
 			// Resize to the target height
 			imageWidth := int32(currentImg.GetImageWidth())
 			imageHeight := int32(currentImg.GetImageHeight())
@@ -478,8 +500,7 @@ func (c *Client) ConvertPdfToImages(inputPath, outputPath string, maxPages int, 
 				slog.Error("Failed to write page image", "error", err, "page", i, "path", pageOutputPath)
 			}
 
-			// Clean up
-			currentImg.Destroy()
+			slog.Info("Processed page", "Index", i)
 		}
 	}
 
