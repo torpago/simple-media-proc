@@ -414,7 +414,8 @@ func TestConvertPdfToImages(t *testing.T) {
 	}
 
 	// Test with real PDF file (skipped by default)
-	testPdfPath := "/Users/bd/Workspace/Torpago/simple-media-proc/test/data/aws.pdf"
+	// testPdfPath := "/Users/bd/Workspace/Torpago/simple-media-proc/test/data/aws.pdf"
+	testPdfPath := "/Users/bd/Workspace/Torpago/simple-media-proc/test/data/banking_statement.pdf"
 	if _, err := os.Stat(testPdfPath); os.IsNotExist(err) {
 		t.Skip("Test PDF file not found, skipping real conversion test")
 	} else {
@@ -427,7 +428,7 @@ func TestConvertPdfToImages(t *testing.T) {
 
 		// Test montage creation
 		outputMontage := filepath.Join(tempDir, "output_montage.png")
-		err = client.ConvertPdfToImages(testPdfPath, outputMontage, 2, 300, true)
+		err = client.ConvertPdfToImages(testPdfPath, outputMontage, 5, 720, true)
 		if err != nil {
 			t.Errorf("Failed to convert PDF to montage: %v", err)
 		}
@@ -439,7 +440,7 @@ func TestConvertPdfToImages(t *testing.T) {
 
 		// Test individual page extraction
 		outputSingleBase := filepath.Join(tempDir, "output_single.png")
-		err = client.ConvertPdfToImages(testPdfPath, outputSingleBase, 2, 300, false)
+		err = client.ConvertPdfToImages(testPdfPath, outputSingleBase, 5, 480, false)
 		if err != nil {
 			t.Errorf("Failed to convert PDF to individual images: %v", err)
 		}
